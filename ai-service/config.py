@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
-    llm_model: str = "phi-3.5-mini:latest"
+    llm_model: str = "phi3.5:latest"
     embed_model: str = "nomic-embed-text:latest"
 
     # Timeouts (seconds)
