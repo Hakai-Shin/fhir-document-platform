@@ -1,10 +1,14 @@
 # FHIR Document Platform
 
-FHIR Document Platform is a lightweight clinical document discovery system built around FHIR `DocumentReference` resources.
-It exposes healthcare documents through a standards-aligned API, adds an AI-assisted metadata sidecar for indexing and semantic search, and ships with a small React UI for browsing and inspecting documents.
+FHIR Document Platform is a clinical document discovery system that organizes healthcare documents around FHIR `DocumentReference` resources.
+FHIR, short for Fast Healthcare Interoperability Resources, is the HL7 standard for exchanging healthcare data in a consistent, machine-readable way.
+Instead of treating documents as loose files or custom JSON, this project wraps them in a FHIR-friendly API so they can be searched, shared, and integrated more easily across healthcare software.
 
-The main goal of the project is to make clinical documents easier to find and review without making the FHIR API itself unpredictable.
-The AI layer is intentionally assistive rather than authoritative: it enriches metadata, extracts keywords, generates summaries, and improves search ranking, while the API responses remain deterministic and auditable.
+The platform combines a Spring Boot backend, a Python AI sidecar, and a React document explorer to make clinical documents easier to find and review.
+The backend exposes deterministic FHIR and REST endpoints, the AI sidecar enriches metadata with summaries, keywords, and search scoring, and the UI gives clinicians or support staff a simple way to browse document metadata and inspect the resulting FHIR payloads.
+
+The main benefit is better document retrieval without losing standards compliance.
+Clinical documents become easier to index, search, and review, while the FHIR API stays predictable, auditable, and suitable for system-to-system integration.
 
 ## What The Platform Does
 
