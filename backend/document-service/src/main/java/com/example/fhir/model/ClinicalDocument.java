@@ -20,6 +20,15 @@ public class ClinicalDocument {
     private String aiSummary;
     private List<String> aiKeywords = new ArrayList<>();
 
+    // FHIR context fields
+    private String encounterId;
+    private String encounterDisplay;
+    private Instant periodStart;
+    private Instant periodEnd;
+    private String facilityType;
+    private String practiceSetting;
+    private String securityLabel;
+
     public ClinicalDocument() {
     }
 
@@ -41,107 +50,86 @@ public class ClinicalDocument {
         this.aiKeywords = aiKeywords == null ? new ArrayList<>() : new ArrayList<>(aiKeywords);
     }
 
-    public String getId() {
-        return id;
+    /**
+     * Full constructor including FHIR context fields.
+     */
+    public ClinicalDocument(String id, String patientId, String patientName, String title, String documentType,
+            String category, String mimeType, String url, Instant createdAt, String author, String sourceSystem,
+            String aiSummary, List<String> aiKeywords,
+            String encounterId, String encounterDisplay,
+            Instant periodStart, Instant periodEnd,
+            String facilityType, String practiceSetting,
+            String securityLabel) {
+        this(id, patientId, patientName, title, documentType, category, mimeType, url, createdAt,
+                author, sourceSystem, aiSummary, aiKeywords);
+        this.encounterId = encounterId;
+        this.encounterDisplay = encounterDisplay;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+        this.facilityType = facilityType;
+        this.practiceSetting = practiceSetting;
+        this.securityLabel = securityLabel;
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
+    // --- Getters / Setters ---
 
-    public String getPatientId() {
-        return patientId;
-    }
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
 
-    public void setPatientId(String patientId) {
-        this.patientId = patientId;
-    }
+    public String getPatientId() { return patientId; }
+    public void setPatientId(String patientId) { this.patientId = patientId; }
 
-    public String getPatientName() {
-        return patientName;
-    }
+    public String getPatientName() { return patientName; }
+    public void setPatientName(String patientName) { this.patientName = patientName; }
 
-    public void setPatientName(String patientName) {
-        this.patientName = patientName;
-    }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
 
-    public String getTitle() {
-        return title;
-    }
+    public String getDocumentType() { return documentType; }
+    public void setDocumentType(String documentType) { this.documentType = documentType; }
 
-    public void setTitle(String title) {
-        this.title = title;
-    }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
 
-    public String getDocumentType() {
-        return documentType;
-    }
+    public String getMimeType() { return mimeType; }
+    public void setMimeType(String mimeType) { this.mimeType = mimeType; }
 
-    public void setDocumentType(String documentType) {
-        this.documentType = documentType;
-    }
+    public String getUrl() { return url; }
+    public void setUrl(String url) { this.url = url; }
 
-    public String getCategory() {
-        return category;
-    }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 
-    public void setCategory(String category) {
-        this.category = category;
-    }
+    public String getAuthor() { return author; }
+    public void setAuthor(String author) { this.author = author; }
 
-    public String getMimeType() {
-        return mimeType;
-    }
+    public String getSourceSystem() { return sourceSystem; }
+    public void setSourceSystem(String sourceSystem) { this.sourceSystem = sourceSystem; }
 
-    public void setMimeType(String mimeType) {
-        this.mimeType = mimeType;
-    }
+    public String getAiSummary() { return aiSummary; }
+    public void setAiSummary(String aiSummary) { this.aiSummary = aiSummary; }
 
-    public String getUrl() {
-        return url;
-    }
+    public List<String> getAiKeywords() { return aiKeywords; }
+    public void setAiKeywords(List<String> aiKeywords) { this.aiKeywords = aiKeywords == null ? new ArrayList<>() : new ArrayList<>(aiKeywords); }
 
-    public void setUrl(String url) {
-        this.url = url;
-    }
+    public String getEncounterId() { return encounterId; }
+    public void setEncounterId(String encounterId) { this.encounterId = encounterId; }
 
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
+    public String getEncounterDisplay() { return encounterDisplay; }
+    public void setEncounterDisplay(String encounterDisplay) { this.encounterDisplay = encounterDisplay; }
 
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
+    public Instant getPeriodStart() { return periodStart; }
+    public void setPeriodStart(Instant periodStart) { this.periodStart = periodStart; }
 
-    public String getAuthor() {
-        return author;
-    }
+    public Instant getPeriodEnd() { return periodEnd; }
+    public void setPeriodEnd(Instant periodEnd) { this.periodEnd = periodEnd; }
 
-    public void setAuthor(String author) {
-        this.author = author;
-    }
+    public String getFacilityType() { return facilityType; }
+    public void setFacilityType(String facilityType) { this.facilityType = facilityType; }
 
-    public String getSourceSystem() {
-        return sourceSystem;
-    }
+    public String getPracticeSetting() { return practiceSetting; }
+    public void setPracticeSetting(String practiceSetting) { this.practiceSetting = practiceSetting; }
 
-    public void setSourceSystem(String sourceSystem) {
-        this.sourceSystem = sourceSystem;
-    }
-
-    public String getAiSummary() {
-        return aiSummary;
-    }
-
-    public void setAiSummary(String aiSummary) {
-        this.aiSummary = aiSummary;
-    }
-
-    public List<String> getAiKeywords() {
-        return aiKeywords;
-    }
-
-    public void setAiKeywords(List<String> aiKeywords) {
-        this.aiKeywords = aiKeywords == null ? new ArrayList<>() : new ArrayList<>(aiKeywords);
-    }
+    public String getSecurityLabel() { return securityLabel; }
+    public void setSecurityLabel(String securityLabel) { this.securityLabel = securityLabel; }
 }

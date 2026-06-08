@@ -46,7 +46,8 @@ class DocumentServiceApplicationTests {
                 "https://example.org/documents/asthma-review.pdf",
                 "Dr. Sen",
                 "Clinic",
-                "Asthma follow-up document with medication review and allergy check.");
+                "Asthma follow-up document with medication review and allergy check.",
+                null, null, null, null, null, null, null);
 
         ClinicalDocument created = restTemplate.postForObject(url("/api/document"), request, ClinicalDocument.class);
 

@@ -67,14 +67,36 @@ public class DocumentEntity {
     @Convert(converter = com.example.fhir.config.VectorConverter.class)
     private float[] embedding;
 
+    // FHIR context fields
+    @Column(length = 64)
+    private String encounterId;
+
+    @Column(length = 256)
+    private String encounterDisplay;
+
+    private Instant periodStart;
+    private Instant periodEnd;
+
+    @Column(length = 128)
+    private String facilityType;
+
+    @Column(length = 128)
+    private String practiceSetting;
+
+    @Column(length = 64)
+    private String securityLabel;
+
     public DocumentEntity() {
     }
 
-    // --- Builder-style constructor ---
     public DocumentEntity(String id, String patientId, String patientName, String title,
                           String documentType, String category, String mimeType, String url,
                           Instant createdAt, String author, String sourceSystem,
-                          String aiSummary, String aiKeywordsJson, float[] embedding) {
+                          String aiSummary, String aiKeywordsJson, float[] embedding,
+                          String encounterId, String encounterDisplay,
+                          Instant periodStart, Instant periodEnd,
+                          String facilityType, String practiceSetting,
+                          String securityLabel) {
         this.id = id;
         this.patientId = patientId;
         this.patientName = patientName;
@@ -89,6 +111,13 @@ public class DocumentEntity {
         this.aiSummary = aiSummary;
         this.aiKeywordsJson = aiKeywordsJson;
         this.embedding = embedding;
+        this.encounterId = encounterId;
+        this.encounterDisplay = encounterDisplay;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+        this.facilityType = facilityType;
+        this.practiceSetting = practiceSetting;
+        this.securityLabel = securityLabel;
     }
 
     // --- Convert from ClinicalDocument POJO ---
@@ -107,7 +136,14 @@ public class DocumentEntity {
             doc.getSourceSystem(),
             doc.getAiSummary(),
             keywordsToJson(doc.getAiKeywords()),
-            embedding
+            embedding,
+            doc.getEncounterId(),
+            doc.getEncounterDisplay(),
+            doc.getPeriodStart(),
+            doc.getPeriodEnd(),
+            doc.getFacilityType(),
+            doc.getPracticeSetting(),
+            doc.getSecurityLabel()
         );
     }
 
@@ -127,6 +163,13 @@ public class DocumentEntity {
         doc.setSourceSystem(this.sourceSystem);
         doc.setAiSummary(this.aiSummary);
         doc.setAiKeywords(keywordsFromJson(this.aiKeywordsJson));
+        doc.setEncounterId(this.encounterId);
+        doc.setEncounterDisplay(this.encounterDisplay);
+        doc.setPeriodStart(this.periodStart);
+        doc.setPeriodEnd(this.periodEnd);
+        doc.setFacilityType(this.facilityType);
+        doc.setPracticeSetting(this.practiceSetting);
+        doc.setSecurityLabel(this.securityLabel);
         return doc;
     }
 
@@ -144,7 +187,6 @@ public class DocumentEntity {
 
     public static List<String> keywordsFromJson(String json) {
         if (json == null || json.isBlank() || json.equals("[]")) return List.of();
-        // Simple parser: strip brackets, split by comma, unquote
         String inner = json.substring(1, json.length() - 1);
         return java.util.Arrays.stream(inner.split(","))
             .map(s -> s.trim().replaceAll("^\"|\"$", ""))
@@ -198,4 +240,25 @@ public class DocumentEntity {
 
     public float[] getEmbedding() { return embedding; }
     public void setEmbedding(float[] embedding) { this.embedding = embedding; }
+
+    public String getEncounterId() { return encounterId; }
+    public void setEncounterId(String encounterId) { this.encounterId = encounterId; }
+
+    public String getEncounterDisplay() { return encounterDisplay; }
+    public void setEncounterDisplay(String encounterDisplay) { this.encounterDisplay = encounterDisplay; }
+
+    public Instant getPeriodStart() { return periodStart; }
+    public void setPeriodStart(Instant periodStart) { this.periodStart = periodStart; }
+
+    public Instant getPeriodEnd() { return periodEnd; }
+    public void setPeriodEnd(Instant periodEnd) { this.periodEnd = periodEnd; }
+
+    public String getFacilityType() { return facilityType; }
+    public void setFacilityType(String facilityType) { this.facilityType = facilityType; }
+
+    public String getPracticeSetting() { return practiceSetting; }
+    public void setPracticeSetting(String practiceSetting) { this.practiceSetting = practiceSetting; }
+
+    public String getSecurityLabel() { return securityLabel; }
+    public void setSecurityLabel(String securityLabel) { this.securityLabel = securityLabel; }
 }
