@@ -1,0 +1,24 @@
+# Java / Spring Boot
+backend/document-service/target/
+backend/document-service/bin/
+backend/document-service/.classpath
+backend/document-service/.project
+backend/document-service/.settings/
+backend/document-service/.factorypath
+backend/document-service/.springBeans
+backend/document-service/.sts4-cache/
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Python sidecar
+ai-service/__pycache__/
+ai-service/*.pyc
+ai-service/.venv/
+
+# IDE / editor noise
+.vscode/
+.idea/
+*.iml
