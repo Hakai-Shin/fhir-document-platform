@@ -92,12 +92,24 @@ The platform is split into three parts:
 │   └── document-service/      Spring Boot backend
 │       ├── pom.xml            Maven project descriptor
 │       └── src/               Application source and tests
+├── docs/                      Project documentation
+│   └── adr/                   Architecture Decision Records
 └── frontend/                  React document explorer
     ├── index.html             Vite entry HTML
     ├── package.json           npm dependencies
     ├── vite.config.js         Vite configuration
     └── src/                   React application source
 ```
+
+## Architecture Decision Records
+
+The project's key technical decisions are documented in [`docs/adr/`](docs/adr/):
+
+- [ADR-001](docs/adr/ADR-001-fhir-facade-vs-full-server.md) — FHIR Facade vs. Full FHIR Server
+- [ADR-002](docs/adr/ADR-002-ai-sidecar-pattern.md) — AI Sidecar Pattern vs. Embedded AI
+- [ADR-003](docs/adr/ADR-003-in-memory-vs-pgvector.md) — In-Memory Store vs. PostgreSQL with pgvector
+- [ADR-004](docs/adr/ADR-004-model-selection.md) — Model Selection for LLM and Embeddings
+- [ADR-005](docs/adr/ADR-005-loinc-mapping.md) — LOINC Code Mapping Strategy
 
 ## FHIR DocumentReference Implementation
 
