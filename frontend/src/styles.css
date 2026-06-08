@@ -147,6 +147,20 @@ textarea {
   width: 42px;
 }
 
+.icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
 .status-message {
   background: #fff4e3;
   border: 1px solid #f2c985;
@@ -254,6 +268,50 @@ pre {
   padding: 14px;
 }
 
+.loading-tag {
+  color: #66798c;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+h3 {
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+/* ---- AI badge ---- */
+.ai-badge {
+  background: #e4f3f0;
+  border-radius: 4px;
+  color: #1f7a6f;
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+}
+
+/* ---- Empty state small (inside list) ---- */
+.empty-state-small {
+  color: #66798c;
+  font-size: 0.86rem;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* ---- Field validation ---- */
+.field-error {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.input-error {
+  border-color: #b91c1c !important;
+  outline: 1px solid #b91c1c;
+}
+
 .ingest-panel {
   display: flex;
   flex-direction: column;
@@ -290,6 +348,10 @@ pre {
   .topbar {
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .toolbar button {
+    width: 100%;
   }
 
   .metadata-grid {

@@ -1,96 +1,202 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileSearch, RefreshCw, Search, Upload } from "lucide-react";
+import {
+  searchDocuments,
+  getFhirReference,
+  ingestDocument,
+} from "./api/client.js";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+const FORM_FIELDS = [
+  { key: "patientId", label: "Patient ID", defaultValue: "PAT-1003" },
+  { key: "patientName", label: "Patient Name", defaultValue: "Nisha Varma" },
+  { key: "title", label: "Title", defaultValue: "Hypertension follow-up note" },
+  { key: "documentType", label: "Document Type", defaultValue: "Progress note" },
+  { key: "category", label: "Category", defaultValue: "clinical-note" },
+  {
+    key: "content",
+    label: "Content",
+    defaultValue:
+      "Follow-up clinical note for hypertension medication review and care plan. Patient reports improved home blood pressure readings.",
+    multiline: true,
+  },
+];
+
+function initFormDefaults() {
+  const defaults = {};
+  for (const field of FORM_FIELDS) {
+    defaults[field.key] = field.defaultValue;
+  }
+  return defaults;
+}
+
+// ---------------------------------------------------------------------------
+// useDebounce hook
+// ---------------------------------------------------------------------------
+
+function useDebounce(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debounced;
+}
+
+// ---------------------------------------------------------------------------
+// App component
+// ---------------------------------------------------------------------------
 
 function App() {
+  // Document list state
   const [documents, setDocuments] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+
+  // FHIR state
   const [fhirReference, setFhirReference] = useState(null);
+
+  // Search state
   const [query, setQuery] = useState("");
   const [patient, setPatient] = useState("");
   const [type, setType] = useState("");
-  const [loading, setLoading] = useState(false);
+  const debouncedQuery = useDebounce(query, 300);
+  const debouncedPatient = useDebounce(patient, 300);
+  const debouncedType = useDebounce(type, 300);
+
+  // Loading states (separate per action)
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [fhirLoading, setFhirLoading] = useState(false);
+  const [ingestLoading, setIngestLoading] = useState(false);
+
+  // Error state
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    patientId: "PAT-1003",
-    patientName: "Nisha Varma",
-    title: "Hypertension follow-up note",
-    documentType: "Progress note",
-    category: "clinical-note",
-    content:
-      "Follow-up clinical note for hypertension medication review and care plan. Patient reports improved home blood pressure readings.",
-  });
+
+  // Ingest form state
+  const [form, setForm] = useState(initFormDefaults);
+  const [formErrors, setFormErrors] = useState({});
+
+  // Track initial mount for debounce skip
+  const isFirstRender = useRef(true);
 
   const selectedDocument = useMemo(
     () => documents.find((document) => document.id === selectedId) ?? documents[0],
     [documents, selectedId],
   );
 
-  useEffect(() => {
-    loadDocuments();
-  }, []);
+  // -----------------------------------------------------------------------
+  // Load documents
+  // -----------------------------------------------------------------------
 
-  useEffect(() => {
-    if (selectedDocument) {
-      loadFhirReference(selectedDocument.id);
-    } else {
-      setFhirReference(null);
-    }
-  }, [selectedDocument?.id]);
-
-  async function loadDocuments() {
-    setLoading(true);
+  const loadDocuments = useCallback(async function loadDocuments(overrides = {}) {
+    setSearchLoading(true);
     setError("");
-    const params = new URLSearchParams();
-    if (query) params.set("q", query);
-    if (patient) params.set("patient", patient);
-    if (type) params.set("type", type);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/document?${params}`);
-      if (!response.ok) throw new Error(`API returned ${response.status}`);
-      const data = await response.json();
+      const params = {
+        query: overrides.query ?? debouncedQuery,
+        patient: overrides.patient ?? debouncedPatient,
+        type: overrides.type ?? debouncedType,
+      };
+      const data = await searchDocuments(params);
       setDocuments(data);
       setSelectedId((current) => current ?? data[0]?.id ?? null);
     } catch (apiError) {
       setError(apiError.message);
     } finally {
-      setLoading(false);
+      setSearchLoading(false);
     }
-  }
+  }, [debouncedQuery, debouncedPatient, debouncedType]);
 
-  async function loadFhirReference(id) {
+  // -----------------------------------------------------------------------
+  // Load FHIR reference for selected document
+  // -----------------------------------------------------------------------
+
+  const loadFhirReference = useCallback(async function loadFhirReference(id) {
+    if (!id) {
+      setFhirReference(null);
+      return;
+    }
+
+    setFhirLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/fhir/DocumentReference/${id}`);
-      if (!response.ok) throw new Error(`FHIR API returned ${response.status}`);
-      setFhirReference(await response.json());
+      setFhirReference(await getFhirReference(id));
     } catch (apiError) {
       setFhirReference({ error: apiError.message });
+    } finally {
+      setFhirLoading(false);
     }
-  }
+  }, []);
 
-  async function ingestDocument(event) {
+  // -----------------------------------------------------------------------
+  // Effects
+  // -----------------------------------------------------------------------
+
+  // Initial load
+  useEffect(() => {
+    loadDocuments();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced auto-search: skip the first render (already loaded above)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    loadDocuments();
+  }, [debouncedQuery, debouncedPatient, debouncedType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load FHIR when selected document changes
+  useEffect(() => {
+    loadFhirReference(selectedDocument?.id);
+  }, [selectedDocument?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------------------------------
+  // Ingest document
+  // -----------------------------------------------------------------------
+
+  async function handleIngest(event) {
     event.preventDefault();
-    setLoading(true);
+
+    // Validate form
+    const errors = {};
+    if (!form.patientId.trim()) errors.patientId = "Required";
+    if (!form.title.trim()) errors.title = "Required";
+    if (!form.content.trim()) errors.content = "Required";
+    setFormErrors(errors);
+
+    if (Object.keys(errors).length > 0) return;
+
+    setIngestLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/document`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!response.ok) throw new Error(`Ingest returned ${response.status}`);
-      const created = await response.json();
+      const created = await ingestDocument(form);
       setSelectedId(created.id);
-      await loadDocuments();
+      // Reload documents list in the background
+      loadDocuments().catch(() => {});
     } catch (apiError) {
       setError(apiError.message);
     } finally {
-      setLoading(false);
+      setIngestLoading(false);
     }
   }
+
+  function handleFormChange(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    // Clear field error on change
+    if (formErrors[key]) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
 
   return (
     <main className="app-shell">
@@ -99,8 +205,13 @@ function App() {
           <p className="eyebrow">FHIR-Aware Clinical Document Service</p>
           <h1>DocumentReference Explorer</h1>
         </div>
-        <button className="icon-button" onClick={loadDocuments} title="Refresh documents">
-          <RefreshCw size={18} />
+        <button
+          className="icon-button"
+          onClick={loadDocuments}
+          disabled={searchLoading}
+          title="Refresh documents"
+        >
+          <RefreshCw size={18} className={searchLoading ? "spinning" : ""} />
         </button>
       </section>
 
@@ -109,18 +220,30 @@ function App() {
           <span>Search</span>
           <div className="input-with-icon">
             <Search size={16} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="semantic text" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="semantic text (auto-search)"
+            />
           </div>
         </label>
         <label>
           <span>Patient</span>
-          <input value={patient} onChange={(event) => setPatient(event.target.value)} placeholder="PAT-1001" />
+          <input
+            value={patient}
+            onChange={(event) => setPatient(event.target.value)}
+            placeholder="PAT-1001"
+          />
         </label>
         <label>
           <span>Type</span>
-          <input value={type} onChange={(event) => setType(event.target.value)} placeholder="lab, imaging" />
+          <input
+            value={type}
+            onChange={(event) => setType(event.target.value)}
+            placeholder="lab, imaging"
+          />
         </label>
-        <button className="primary-action" onClick={loadDocuments}>
+        <button className="primary-action" onClick={loadDocuments} disabled={searchLoading}>
           <FileSearch size={18} />
           Find
         </button>
@@ -132,9 +255,16 @@ function App() {
         <div className="results-panel">
           <div className="panel-heading">
             <h2>Documents</h2>
-            <span>{loading ? "Loading" : `${documents.length} found`}</span>
+            <span>
+              {searchLoading
+                ? "Searching..."
+                : `${documents.length} found`}
+            </span>
           </div>
           <div className="document-list">
+            {documents.length === 0 && !searchLoading && (
+              <div className="empty-state-small">No documents match the current filters.</div>
+            )}
             {documents.map((document) => (
               <button
                 className={`document-row ${document.id === selectedDocument?.id ? "active" : ""}`}
@@ -143,9 +273,9 @@ function App() {
               >
                 <strong>{document.title}</strong>
                 <span>
-                  {document.patientName} - {document.documentType}
+                  {document.patientName} &ndash; {document.documentType}
                 </span>
-                <small>{document.aiKeywords.join(", ")}</small>
+                <small>{document.aiKeywords?.join(", ") ?? ""}</small>
               </button>
             ))}
           </div>
@@ -158,6 +288,12 @@ function App() {
                 <h2>{selectedDocument.title}</h2>
                 <span>{selectedDocument.id}</span>
               </div>
+              {selectedDocument.aiSummary && (
+                <p className="summary">
+                  <span className="ai-badge">AI summary</span>
+                  {selectedDocument.aiSummary}
+                </p>
+              )}
               <dl className="metadata-grid">
                 <div>
                   <dt>Patient</dt>
@@ -177,42 +313,60 @@ function App() {
                   <dt>Created</dt>
                   <dd>{new Date(selectedDocument.createdAt).toLocaleString()}</dd>
                 </div>
+                {selectedDocument.aiKeywords?.length > 0 && (
+                  <div>
+                    <dt>AI Keywords</dt>
+                    <dd>{selectedDocument.aiKeywords.join(", ")}</dd>
+                  </div>
+                )}
               </dl>
-              <p className="summary">{selectedDocument.aiSummary}</p>
+              <div className="panel-heading">
+                <h3>FHIR DocumentReference</h3>
+                {fhirLoading && <span className="loading-tag">Loading...</span>}
+              </div>
               <pre>{JSON.stringify(fhirReference, null, 2)}</pre>
             </>
           ) : (
-            <div className="empty-state">No documents match the current filters.</div>
+            <div className="empty-state">
+              {searchLoading ? "Searching..." : "No documents match the current filters."}
+            </div>
           )}
         </div>
 
-        <form className="ingest-panel" onSubmit={ingestDocument}>
+        <form className="ingest-panel" onSubmit={handleIngest}>
           <div className="panel-heading">
             <h2>Ingest</h2>
             <Upload size={18} />
           </div>
-          {Object.entries(form).map(([key, value]) => (
+          {FORM_FIELDS.map(({ key, label, multiline }) => (
             <label key={key}>
-              <span>{labelFor(key)}</span>
-              {key === "content" ? (
-                <textarea value={value} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />
+              <span>
+                {label}
+                {formErrors[key] && <span className="field-error"> &mdash; {formErrors[key]}</span>}
+              </span>
+              {multiline ? (
+                <textarea
+                  value={form[key]}
+                  onChange={(event) => handleFormChange(key, event.target.value)}
+                  className={formErrors[key] ? "input-error" : ""}
+                />
               ) : (
-                <input value={value} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />
+                <input
+                  value={form[key]}
+                  onChange={(event) => handleFormChange(key, event.target.value)}
+                  className={formErrors[key] ? "input-error" : ""}
+                />
               )}
             </label>
           ))}
-          <button className="primary-action" type="submit">
+          <button className="primary-action" type="submit" disabled={ingestLoading}>
             <Upload size={18} />
-            Ingest
+            {ingestLoading ? "Ingesting..." : "Ingest"}
           </button>
         </form>
       </section>
     </main>
   );
-}
-
-function labelFor(key) {
-  return key.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 }
 
 export default App;
