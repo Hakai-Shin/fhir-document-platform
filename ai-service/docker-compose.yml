@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ai-service:
+    build: .
+    container_name: ai-sidecar
+    ports:
+      - "8090:8090"
+    environment:
+      AI_OLLAMA_BASE_URL: "http://ollama:11434"
+      AI_LLM_MODEL: "phi-3.5-mini:latest"
+      AI_EMBED_MODEL: "nomic-embed-text:latest"
+      AI_LLM_TIMEOUT: "30"
+      AI_EMBED_TIMEOUT: "10"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

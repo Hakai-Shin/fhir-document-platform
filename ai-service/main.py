@@ -1,166 +1,181 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from json import dumps, loads
-from typing import Optional
-from re import findall
-from urllib.parse import urlparse
+import logging
+import sys
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from config import settings
+from llm_client import (
+    compute_similarity,
+    extract_keywords,
+    generate_summary,
+    generate_title,
+    get_embedding,
+)
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
 
 
-CLINICAL_TERMS = {
-    "diabetes",
-    "hypertension",
-    "asthma",
-    "cardiology",
-    "radiology",
-    "pathology",
-    "discharge",
-    "medication",
-    "allergy",
-    "lab",
-    "imaging",
-    "follow-up",
-    "creatinine",
-    "hemoglobin",
-    "fracture",
-    "infection",
-}
+# ---------------------------------------------------------------------------
+# Request / Response models
+# ---------------------------------------------------------------------------
 
-STOP_WORDS = {
-    "patient",
-    "clinical",
-    "document",
-    "report",
-    "normal",
-    "history",
-    "note",
-    "summary",
-}
+class EnrichRequest(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+    model_config = {"extra": "ignore"}
 
 
-def normalize_text(value: Optional[str]) -> str:
-    return value.strip() if value else ""
+class EnrichResponse(BaseModel):
+    title: str
+    summary: str
+    keywords: list[str]
 
 
-def infer_title(content: str) -> str:
-    compact = " ".join(content.split()).strip()
-    if not compact:
-        return "Untitled clinical document"
-    return compact[:72]
+class ScoreRequest(BaseModel):
+    document: dict = Field(default_factory=dict)
+    query: str | None = None
+
+    model_config = {"extra": "ignore"}
 
 
-def summarize(content: str) -> str:
-    compact = " ".join(content.split()).strip()
-    if not compact:
-        return "AI sidecar has no document body yet; metadata is indexed from the submitted title and fields."
-    if len(compact) <= 180:
-        return compact
-    return compact[:177] + "..."
+class ScoreResponse(BaseModel):
+    score: float
 
 
-def extract_keywords(text: str) -> list[str]:
-    normalized = text.lower()
-    keywords: list[str] = []
+class EmbedRequest(BaseModel):
+    text: str
 
-    for term in CLINICAL_TERMS:
-        if term in normalized and term not in keywords:
-            keywords.append(term)
-
-    tokens = findall(r"[a-z0-9]+", normalized)
-    candidates = [
-        token
-        for token in tokens
-        if len(token) > 5 and token not in STOP_WORDS and token not in keywords
-    ]
-
-    candidates = sorted(set(candidates), key=len, reverse=True)[:4]
-    for candidate in candidates:
-        if candidate not in keywords:
-            keywords.append(candidate)
-
-    return keywords[:8]
+    model_config = {"extra": "ignore"}
 
 
-def semantic_score(document: dict, query: Optional[str]) -> int:
-    if not query or not query.strip():
-        return 0
-
-    normalized = query.lower()
-    score = 0
-    score += 8 if normalized in normalize_text(document.get("title")).lower() else 0
-    score += 5 if normalized in normalize_text(document.get("documentType")).lower() else 0
-    score += 4 if normalized in normalize_text(document.get("category")).lower() else 0
-    score += 4 if normalized in normalize_text(document.get("patientName")).lower() else 0
-    score += 3 if normalized in normalize_text(document.get("aiSummary")).lower() else 0
-
-    for keyword in document.get("aiKeywords", []):
-        if normalized in keyword.lower():
-            score += 6
-
-    return score
+class EmbedResponse(BaseModel):
+    embedding: list[float]
 
 
-def enrich_document(payload: dict) -> dict:
-    content = normalize_text(payload.get("content"))
-    title = normalize_text(payload.get("title")) or infer_title(content)
-    summary = summarize(content)
-    keywords = extract_keywords(f"{title} {content}")
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
 
-    return {
-        "title": title,
-        "summary": summary,
-        "keywords": keywords,
-    }
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("AI service starting (model=%s, embed=%s)", settings.llm_model, settings.embed_model)
+    yield
+    logger.info("AI service shutting down")
 
 
-class SidecarHandler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
+app = FastAPI(
+    title="FHIR AI Sidecar",
+    version="2.0.0",
+    lifespan=lifespan,
+)
 
-    def _send_json(self, status: int, payload: dict) -> None:
-        body = dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
-    def do_GET(self) -> None:
-        path = urlparse(self.path).path
-        if path == "/health":
-            self._send_json(200, {"status": "ok", "service": "ai-sidecar"})
-            return
-        self._send_json(404, {"error": "not_found"})
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
-    def do_POST(self) -> None:
-        path = urlparse(self.path).path
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
-        print(f"{path} {raw}", flush=True)
-        payload = loads(raw or "{}")
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "ai-sidecar", "model": settings.llm_model}
 
-        if path == "/enrich":
-            self._send_json(200, enrich_document(payload))
-            return
 
-        if path == "/score":
-            self._send_json(
-                200,
-                {
-                    "score": semantic_score(payload.get("document", {}), payload.get("query")),
-                },
-            )
-            return
+@app.post("/enrich", response_model=EnrichResponse)
+async def enrich(payload: EnrichRequest, request: Request):
+    """Generate AI title, summary, and keywords from document content."""
+    content = (payload.content or "").strip()
 
-        self._send_json(404, {"error": "not_found"})
+    if not content:
+        return EnrichResponse(
+            title=payload.title or "Untitled clinical document",
+            summary="No document body provided.",
+            keywords=[],
+        )
 
-    def log_message(self, format: str, *args) -> None:
-        return
+    # Run LLM calls concurrently
+    import asyncio
 
+    ai_title, ai_summary, ai_keywords = await asyncio.gather(
+        generate_title(content),
+        generate_summary(content),
+        extract_keywords(content),
+    )
+
+    title = ai_title or payload.title or "Untitled clinical document"
+    summary = ai_summary or "Summary could not be generated."
+    keywords = ai_keywords if ai_keywords else []
+
+    logger.info("enrich title_len=%d summary_len=%d keywords=%d", len(title), len(summary), len(keywords))
+
+    return EnrichResponse(title=title, summary=summary, keywords=keywords)
+
+
+@app.post("/score", response_model=ScoreResponse)
+async def score(payload: ScoreRequest, request: Request):
+    """Score document relevance against a query using embedding-based semantic similarity."""
+    query = (payload.query or "").strip()
+    doc = payload.document or {}
+
+    if not query:
+        return ScoreResponse(score=0.0)
+
+    # Build a combined text from the document fields for embedding comparison
+    doc_text = " ".join(
+        str(v) for v in [
+            doc.get("title", ""),
+            doc.get("documentType", ""),
+            doc.get("category", ""),
+            doc.get("patientName", ""),
+            doc.get("aiSummary", ""),
+            " ".join(doc.get("aiKeywords", [])),
+            doc.get("content", ""),
+        ] if v
+    ).strip()
+
+    similarity = await compute_similarity(query, doc_text)
+    logger.info("score query=%s similarity=%.4f", query[:50], similarity)
+
+    return ScoreResponse(score=similarity)
+
+
+@app.post("/embed", response_model=EmbedResponse)
+async def embed(payload: EmbedRequest, request: Request):
+    """Generate an embedding vector for the given text. Useful for caching."""
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="text must not be empty")
+
+    embedding = await get_embedding(text)
+    if not embedding:
+        raise HTTPException(status_code=503, detail="Embedding service unavailable")
+
+    return EmbedResponse(embedding=embedding)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main() -> None:
-    host = "0.0.0.0"
-    port = 8090
-    server = HTTPServer((host, port), SidecarHandler)
-    print(f"AI sidecar listening on http://{host}:{port}", flush=True)
-    server.serve_forever()
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
