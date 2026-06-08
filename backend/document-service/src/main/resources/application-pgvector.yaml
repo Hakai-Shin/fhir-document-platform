@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: ${DOC_DB_URL:jdbc:postgresql://localhost:5432/documents}
+    driver-class-name: org.postgresql.Driver
+    username: ${DOC_DB_USER:postgres}
+    password: ${DOC_DB_PASS:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: com.example.fhir.config.PgVectorDialect
+    show-sql: false
+
+# pgvector index settings
+pgvector:
+  index:
+    type: ivfflat  # or 'hnsw' for better accuracy but slower build
+    distance: cosine
+    lists: 100     # IVFFlat lists (rule of thumb: sqrt(number_of_rows))

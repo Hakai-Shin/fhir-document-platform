@@ -77,7 +77,7 @@ public class AiMetadataService {
         return enrichLocally(request);
     }
 
-    public int semanticScore(ClinicalDocument document, String query) {
+    public float semanticScore(ClinicalDocument document, String query) {
         if (query == null || query.isBlank()) {
             return 0;
         }
@@ -110,7 +110,7 @@ public class AiMetadataService {
         return new EnrichedMetadata(title, summary, keywords);
     }
 
-    private int semanticScoreLocally(ClinicalDocument document, String query) {
+    private float semanticScoreLocally(ClinicalDocument document, String query) {
         String normalizedQuery = query.toLowerCase(Locale.ROOT);
         int score = 0;
         score += containsScore(document.getTitle(), normalizedQuery, 8);
@@ -232,6 +232,6 @@ public class AiMetadataService {
     private record SidecarEnrichmentResponse(String title, String summary, List<String> keywords) {
     }
 
-    private record SidecarScoreResponse(int score) {
+    private record SidecarScoreResponse(float score) {
     }
 }

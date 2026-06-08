@@ -1,8 +1,10 @@
 spring:
   application:
     name: document-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
 ai:
   sidecar:
     base-url: ${AI_SIDECAR_BASE_URL:http://127.0.0.1:8090}
-    timeout: ${AI_SIDECAR_TIMEOUT:2s}
+    timeout: ${AI_SIDECAR_TIMEOUT:35s}

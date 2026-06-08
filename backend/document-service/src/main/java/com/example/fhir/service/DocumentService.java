@@ -2,36 +2,66 @@ package com.example.fhir.service;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+
+import jakarta.annotation.PostConstruct;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import jakarta.annotation.PostConstruct;
-
 import com.example.fhir.model.ClinicalDocument;
+import com.example.fhir.model.DocumentEntity;
 import com.example.fhir.model.DocumentIngestRequest;
+import com.example.fhir.repository.DocumentRepository;
 import com.example.fhir.service.AiMetadataService.EnrichedMetadata;
 
+/**
+ * Core document service that orchestrates persistence, AI enrichment,
+ * semantic search, and FHIR conversion.
+ *
+ * <p>When the {@code pgvector} profile is active, documents are persisted
+ * in PostgreSQL via JPA and search uses pgvector cosine similarity.
+ * Otherwise, an in-memory {@code ConcurrentHashMap} is used with the
+ * {@code semanticScore()} fallback from {@link AiMetadataService}.</p>
+ */
 @Service
 public class DocumentService {
 
     private final AiMetadataService aiMetadataService;
-    private final Map<String, ClinicalDocument> documents = new ConcurrentHashMap<>();
+    private final Optional<VectorSearchService> vectorSearchService;
+    private final Optional<EmbeddingService> embeddingService;
+    private final DocumentRepository documentRepository;
+    private final boolean useJpa;
 
-    public DocumentService(AiMetadataService aiMetadataService) {
+    // In-memory fallback store (used when JPA/pgvector is not active)
+    private final Map<String, ClinicalDocument> documents = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public DocumentService(
+            AiMetadataService aiMetadataService,
+            Optional<VectorSearchService> vectorSearchService,
+            Optional<EmbeddingService> embeddingService,
+            DocumentRepository documentRepository) {
         this.aiMetadataService = aiMetadataService;
+        this.vectorSearchService = vectorSearchService;
+        this.embeddingService = embeddingService;
+        this.documentRepository = documentRepository;
+        this.useJpa = vectorSearchService.isPresent();
     }
+
+    // -----------------------------------------------------------------------
+    // Seed data (only for non-JPA in-memory mode)
+    // -----------------------------------------------------------------------
 
     @PostConstruct
     void loadSeedDocuments() {
+        if (useJpa) {
+            return; // JPA mode: data comes from DB
+        }
         saveSeed(new ClinicalDocument(
                 "doc-001",
                 "PAT-1001",
@@ -76,29 +106,63 @@ public class DocumentService {
                 List.of("diabetes", "lab", "creatinine", "hemoglobin")));
     }
 
+    // -----------------------------------------------------------------------
+    // Search
+    // -----------------------------------------------------------------------
+
     public List<ClinicalDocument> search(String patient, String type, String query) {
+        if (useJpa && vectorSearchService.isPresent()) {
+            // pgvector search path — fast, single SQL query with <=> operator
+            return vectorSearchService.get().search(query, patient, type, 50);
+        }
+
+        // Fallback: in-memory search with local semantic scoring
         return documents.values().stream()
-                .filter(document -> matches(document.getPatientId(), patient) || matches(document.getPatientName(), patient)
+                .filter(d -> matches(d.getPatientId(), patient)
+                        || matches(d.getPatientName(), patient)
                         || patient == null || patient.isBlank())
-                .filter(document -> matches(document.getDocumentType(), type) || matches(document.getCategory(), type)
+                .filter(d -> matches(d.getDocumentType(), type)
+                        || matches(d.getCategory(), type)
                         || type == null || type.isBlank())
-                .filter(document -> query == null || query.isBlank() || aiMetadataService.semanticScore(document, query) > 0)
-                .sorted(Comparator
-                        .comparingInt((ClinicalDocument document) -> aiMetadataService.semanticScore(document, query))
+                .filter(d -> query == null || query.isBlank()
+                        || aiMetadataService.semanticScore(d, query) > 0)
+                .sorted(java.util.Comparator
+                        .<ClinicalDocument>comparingDouble(
+                                d -> aiMetadataService.semanticScore(d, query))
                         .reversed()
-                        .thenComparing(ClinicalDocument::getCreatedAt, Comparator.reverseOrder()))
+                        .thenComparing(ClinicalDocument::getCreatedAt,
+                                java.util.Comparator.reverseOrder()))
                 .toList();
     }
 
+    // -----------------------------------------------------------------------
+    // Find by ID
+    // -----------------------------------------------------------------------
+
     public ClinicalDocument findById(String id) {
+        if (useJpa) {
+            return documentRepository.findById(id)
+                    .map(DocumentEntity::toClinicalDocument)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND, "Document not found"));
+        }
         return Optional.ofNullable(documents.get(id))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "DocumentReference not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Document not found"));
     }
 
+    // -----------------------------------------------------------------------
+    // Ingest (create) — enrich + persist + vectorize
+    // -----------------------------------------------------------------------
+
     public ClinicalDocument ingest(DocumentIngestRequest request) {
+        // 1. Enrich with AI (title, summary, keywords)
         EnrichedMetadata metadata = aiMetadataService.enrich(request);
+
+        // 2. Build the document POJO
+        String docId = "doc-" + UUID.randomUUID();
         ClinicalDocument document = new ClinicalDocument(
-                "doc-" + UUID.randomUUID(),
+                docId,
                 required(request.patientId(), "patientId"),
                 firstPresent(request.patientName(), "Unknown patient"),
                 metadata.title(),
@@ -112,9 +176,30 @@ public class DocumentService {
                 metadata.summary(),
                 metadata.keywords());
 
-        documents.put(document.getId(), document);
+        if (useJpa) {
+            // 3a. Generate embedding via AI sidecar (if available)
+            float[] embedding = embeddingService
+                    .map(es -> es.embed(es.buildDocumentText(
+                            document.getTitle(), document.getDocumentType(),
+                            document.getCategory(), document.getPatientName(),
+                            document.getAiSummary(), document.getAiKeywords(),
+                            request.content())))
+                    .orElse(null);
+
+            // 4a. Persist via JPA
+            DocumentEntity entity = DocumentEntity.fromClinicalDocument(document, embedding);
+            documentRepository.save(entity);
+        } else {
+            // 3b. Store in memory
+            documents.put(document.getId(), document);
+        }
+
         return document;
     }
+
+    // -----------------------------------------------------------------------
+    // FHIR conversion
+    // -----------------------------------------------------------------------
 
     public Map<String, Object> toFhirBundle(List<ClinicalDocument> results) {
         List<Map<String, Object>> entries = new ArrayList<>();
@@ -123,7 +208,6 @@ public class DocumentService {
                     "fullUrl", "urn:uuid:" + document.getId(),
                     "resource", toFhirDocumentReference(document)));
         }
-
         Map<String, Object> bundle = new LinkedHashMap<>();
         bundle.put("resourceType", "Bundle");
         bundle.put("type", "searchset");
@@ -141,8 +225,10 @@ public class DocumentService {
         resource.put("subject", Map.of(
                 "reference", "Patient/" + document.getPatientId(),
                 "display", document.getPatientName()));
-        resource.put("type", coding("http://loinc.org", document.getDocumentType(), document.getDocumentType()));
-        resource.put("category", List.of(coding("http://terminology.hl7.org/CodeSystem/document-classcodes",
+        resource.put("type", coding("http://loinc.org",
+                document.getDocumentType(), document.getDocumentType()));
+        resource.put("category", List.of(coding(
+                "http://terminology.hl7.org/CodeSystem/document-classcodes",
                 document.getCategory(), document.getCategory())));
         resource.put("date", document.getCreatedAt().toString());
         resource.put("author", List.of(Map.of("display", document.getAuthor())));
@@ -160,6 +246,10 @@ public class DocumentService {
         return resource;
     }
 
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
     private void saveSeed(ClinicalDocument document) {
         documents.put(document.getId(), document);
     }
@@ -172,12 +262,14 @@ public class DocumentService {
     }
 
     private boolean matches(String value, String query) {
-        return value != null && query != null && value.toLowerCase().contains(query.toLowerCase());
+        return value != null && query != null
+                && value.toLowerCase().contains(query.toLowerCase());
     }
 
     private String required(String value, String fieldName) {
         if (value == null || value.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " is required");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, fieldName + " is required");
         }
         return value;
     }
